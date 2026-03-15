@@ -1,0 +1,95 @@
+import fitz
+import json
+import os
+from groq import Groq
+from dotenv import load_dotenv
+from prompts import DDR_SYSTEM_PROMPT, DDR_USER_PROMPT
+
+load_dotenv()
+
+def extract_text_from_pdf(pdf_file) -> str:
+    doc = fitz.open(stream=pdf_file.read(), filetype="pdf")
+    text = ""
+    for page in doc:
+        text += page.get_text()
+    return text
+
+def generate_ddr_data(inspection_text: str, thermal_text: str) -> dict:
+    client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+
+    user_message = DDR_USER_PROMPT.format(
+        inspection_text=inspection_text[:12000],
+        thermal_text=thermal_text[:6000]
+    )
+
+    response = client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=[
+            {"role": "system", "content": DDR_SYSTEM_PROMPT},
+            {"role": "user",   "content": user_message}
+        ],
+        temperature=0.3,
+        max_tokens=4000,
+    )
+
+    raw = response.choices[0].message.content
+
+    # Clean markdown if present
+    if "```json" in raw:
+        raw = raw.split("```json")[1].split("```")[0]
+    elif "```" in raw:
+        raw = raw.split("```")[1].split("```")[0]
+
+    raw = raw.strip()
+
+    # Parse JSON
+    parsed = json.loads(raw)
+
+    # If AI returned a list instead of dict, wrap it
+    if isinstance(parsed, list):
+        parsed = {"area_observations": parsed}
+
+    # Make sure all expected keys exist with safe defaults
+    result = {
+        "property_summary": parsed.get("property_summary", {
+            "overview": "Not Available", "areas": []
+        }),
+        "area_observations": parsed.get("area_observations", []),
+        "root_causes": parsed.get("root_causes", []),
+        "severity": parsed.get("severity", []),
+        "recommended_actions": parsed.get("recommended_actions", {
+            "immediate": [], "short_term": [], "long_term": []
+        }),
+        "additional_notes": parsed.get("additional_notes", []),
+        "missing_info": parsed.get("missing_info", []),
+    }
+
+    # Fix area_observations if items are strings instead of dicts
+    fixed_observations = []
+    for obs in result["area_observations"]:
+        if isinstance(obs, str):
+            fixed_observations.append({
+                "area": obs,
+                "negative_side": "Not Available",
+                "positive_side": "Not Available",
+                "thermal_finding": "Not Available"
+            })
+        elif isinstance(obs, dict):
+            fixed_observations.append(obs)
+    result["area_observations"] = fixed_observations
+
+    # Fix severity if items are strings instead of dicts
+    fixed_severity = []
+    for sev in result["severity"]:
+        if isinstance(sev, str):
+            fixed_severity.append({
+                "area": sev,
+                "level": "Moderate",
+                "reasoning": "Not Available",
+                "action": "Not Available"
+            })
+        elif isinstance(sev, dict):
+            fixed_severity.append(sev)
+    result["severity"] = fixed_severity
+
+    return result
