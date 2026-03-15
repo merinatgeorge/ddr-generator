@@ -6,24 +6,28 @@ from dotenv import load_dotenv
 from prompts import DDR_SYSTEM_PROMPT, DDR_USER_PROMPT
 
 load_dotenv()
+
+def extract_text_from_pdf(pdf_file) -> str:
+    pdf_file.seek(0)
+    doc = fitz.open(stream=pdf_file.read(), filetype="pdf")
+    text = ""
+    for page in doc:
+        text += page.get_text()
+    return text
+
 def extract_images_from_pdf(pdf_file) -> list:
-    """Extract all images from a PDF and return as list of bytes."""
-    pdf_file.seek(0)  # reset file pointer
+    pdf_file.seek(0)
     doc = fitz.open(stream=pdf_file.read(), filetype="pdf")
     images = []
-    
     for page_num in range(len(doc)):
         page = doc[page_num]
         image_list = page.get_images(full=True)
-        
         for img_index, img in enumerate(image_list):
             xref = img[0]
             try:
                 base_image = doc.extract_image(xref)
                 image_bytes = base_image["image"]
                 image_ext = base_image["ext"]
-                
-                # Only include jpg and png
                 if image_ext.lower() in ["jpeg", "jpg", "png"]:
                     images.append({
                         "bytes": image_bytes,
@@ -33,15 +37,7 @@ def extract_images_from_pdf(pdf_file) -> list:
                     })
             except Exception:
                 continue
-    
     return images
-
-def extract_text_from_pdf(pdf_file) -> str:
-    doc = fitz.open(stream=pdf_file.read(), filetype="pdf")
-    text = ""
-    for page in doc:
-        text += page.get_text()
-    return text
 
 def generate_ddr_data(inspection_text: str, thermal_text: str) -> dict:
     client = Groq(api_key=os.getenv("GROQ_API_KEY"))
@@ -63,22 +59,17 @@ def generate_ddr_data(inspection_text: str, thermal_text: str) -> dict:
 
     raw = response.choices[0].message.content
 
-    # Clean markdown if present
     if "```json" in raw:
         raw = raw.split("```json")[1].split("```")[0]
     elif "```" in raw:
         raw = raw.split("```")[1].split("```")[0]
 
     raw = raw.strip()
-
-    # Parse JSON
     parsed = json.loads(raw)
 
-    # If AI returned a list instead of dict, wrap it
     if isinstance(parsed, list):
         parsed = {"area_observations": parsed}
 
-    # Make sure all expected keys exist with safe defaults
     result = {
         "property_summary": parsed.get("property_summary", {
             "overview": "Not Available", "areas": []
@@ -93,7 +84,6 @@ def generate_ddr_data(inspection_text: str, thermal_text: str) -> dict:
         "missing_info": parsed.get("missing_info", []),
     }
 
-    # Fix area_observations if items are strings instead of dicts
     fixed_observations = []
     for obs in result["area_observations"]:
         if isinstance(obs, str):
@@ -107,7 +97,6 @@ def generate_ddr_data(inspection_text: str, thermal_text: str) -> dict:
             fixed_observations.append(obs)
     result["area_observations"] = fixed_observations
 
-    # Fix severity if items are strings instead of dicts
     fixed_severity = []
     for sev in result["severity"]:
         if isinstance(sev, str):
