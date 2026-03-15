@@ -6,6 +6,35 @@ from dotenv import load_dotenv
 from prompts import DDR_SYSTEM_PROMPT, DDR_USER_PROMPT
 
 load_dotenv()
+def extract_images_from_pdf(pdf_file) -> list:
+    """Extract all images from a PDF and return as list of bytes."""
+    pdf_file.seek(0)  # reset file pointer
+    doc = fitz.open(stream=pdf_file.read(), filetype="pdf")
+    images = []
+    
+    for page_num in range(len(doc)):
+        page = doc[page_num]
+        image_list = page.get_images(full=True)
+        
+        for img_index, img in enumerate(image_list):
+            xref = img[0]
+            try:
+                base_image = doc.extract_image(xref)
+                image_bytes = base_image["image"]
+                image_ext = base_image["ext"]
+                
+                # Only include jpg and png
+                if image_ext.lower() in ["jpeg", "jpg", "png"]:
+                    images.append({
+                        "bytes": image_bytes,
+                        "ext": image_ext,
+                        "page": page_num + 1,
+                        "index": img_index
+                    })
+            except Exception:
+                continue
+    
+    return images
 
 def extract_text_from_pdf(pdf_file) -> str:
     doc = fitz.open(stream=pdf_file.read(), filetype="pdf")

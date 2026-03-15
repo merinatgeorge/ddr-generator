@@ -1,5 +1,5 @@
 import streamlit as st
-from ddr_engine import extract_text_from_pdf, generate_ddr_data
+from ddr_engine import extract_text_from_pdf, generate_ddr_data, extract_images_from_pdf
 from report_builder import build_docx
 
 st.set_page_config(
@@ -43,10 +43,16 @@ if inspection_file and thermal_file:
         progress = st.progress(0, text="Reading inspection report...")
 
         inspection_text = extract_text_from_pdf(inspection_file)
-        progress.progress(25, text="Reading thermal data...")
+        progress.progress(20, text="Extracting images from inspection report...")
+
+        inspection_images = extract_images_from_pdf(inspection_file)
+        progress.progress(35, text="Reading thermal data...")
 
         thermal_text = extract_text_from_pdf(thermal_file)
-        progress.progress(50, text="Analysing documents...")
+        progress.progress(50, text="Extracting thermal images...")
+
+        thermal_images = extract_images_from_pdf(thermal_file)
+        progress.progress(65, text="Analysing documents with AI...")
 
         try:
             ddr_data = generate_ddr_data(inspection_text, thermal_text)
@@ -56,7 +62,7 @@ if inspection_file and thermal_file:
             st.error(f"Analysis failed: {str(e)}")
             st.stop()
 
-        docx_bytes = build_docx(ddr_data)
+        docx_bytes = build_docx(ddr_data, inspection_images, thermal_images)
         progress.progress(100, text="Complete.")
         progress.empty()
 
